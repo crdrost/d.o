@@ -1,0 +1,27 @@
+The d.o library is presently unstable and the docs that I've written for it will have to wait for me getting my site up. I should warn you that this isn't going to happen in the near future. You've my apologies.
+
+It's designed to solve a whole bunch of miscellaneous data management problems:
+
+	build : makes it easy to build and manage a DOM tree.
+	jasper : makes it easy to write a data model and sanitize objects against it.
+	json : makes it easy to parse JSON and serialize to it, without an eval() call.
+	library : makes it easy to load libraries and dependencies in javascript.
+	transcode: makes it easy to transcode strings and binary data.
+
+The library.js file itself makes it very easy to include d.o files. To use it, you will need to write a /manifest file/ that says exactly where to find your other files. It should be included after library.js . For example, it might say:
+
+	d.o.library.paths = {
+		"d.o build": "http://mysite.example/static/js/d.o/build.js",
+		"d.o jasper": "http://mysite.example/static/js/d.o/jasper.js"
+	};
+
+Code can then be called from the library after its requirements have been loaded:
+
+	d.o.library({
+		require: ['d.o build'],
+		callback: function () {
+			d.o.build(["#content", ["p", " Some text."]]);
+		}
+	});
+
+

@@ -83,17 +83,17 @@ d.o.library({
 					o.sanitized = new RegExp(v.source, tmp);
 				} else if (typeof v === 'string' || v instanceof String) {
 					tmp = regex_parse.exec(v);
-					if (tmp === null) {
-						o.err('invalid regex');
-					} else {
+					try {
 						o.sanitized = new RegExp(tmp[1], tmp[2]);
+					} catch (e) {
+						o.err('invalid regex');
 					}
 				} else {
 					o.err('unable to coerce');
 				}
 				if (c.opts.regex_as_string === true) {
 					// toString() automatically has the right syntax.
-					o.sanitized = o.sanitized.toString();
+					o.sanitized = "" + o.sanitized;
 				}
 			},
 			"boolean": function (v, o) {
@@ -306,9 +306,6 @@ d.o.library({
 					schema = model.hasOwnProperty(schema) ? 
 						model[schema] :
 						{type: schema, meta: {}};
-				}
-				if (schema.meta === undefined) {
-					schema.meta = {};
 				}
 				
 				// allow objects to define their own jasper serialization
