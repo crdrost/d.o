@@ -24,9 +24,9 @@ class __OutputObject:
 		self.errors = []
 		self.warnings = []
 	def err(self, msg):
-		self.errors.append(self._dict.clone().extend({'message': msg}))
+		self.errors.append(self._dict.copy().update({'message': msg}))
 	def warn(self, msg):
-		self.errors.append(self._dict.clone().extend({'message': msg}))
+		self.errors.append(self._dict.copy().update({'message': msg}))
 	def merge_errors(self, other):
 		self.errors.extend(other.errors)
 		self.warnings.extend(other.warnings)
@@ -41,11 +41,12 @@ class __Context:
 		self.opts = opts
 
 # 
-_regex_parse = re.parse(r'^/(.*)/(i?m?|mi)$')
+_regex_parse = re.compile(r'^/(.*)/(i?m?|mi)$')
 _regex_flags = {
 	'i': re.I, 'm': re.M, 'im': re.I | re.M, 'mi': re.I | re.M
 }
 typeof = lambda s: type(s).__name__
+_inf = float("Infinity")
 
 def dictify(array):
 	out = {}
@@ -201,15 +202,15 @@ def _multi(v, o, m, r, c):
 	o.err('no options matched')
 	
 	for i in range(len(subschemas)):
-		output = r(v, subchemas[i], '(multi: ' + str(i) + ')')
+		output = r(v, subschemas[i], '(multi: ' + str(i) + ')')
 		attempts.append(output)
 		o.merge_errors(output)
 	
 	attempts.sort(key=lambda a: (len(a.errors), len(a.warnings)))
 	
 	if len(attempts) > 0:
-		if attempts[0].errors.length == 0:
-			o.proxy(attempts)
+		if len(attempts[0].errors) == 0:
+			o.proxy(attempts[0])
 
 @primitive
 def _enum(v, o, m, r, c):
@@ -244,7 +245,7 @@ def _args(v, o, m, r, c):
 	t = typeof(v)
 	if t == 'list':
 		v = dictify(v)
-	elif t != 'dict'::
+	elif t != 'dict':
 		o.err('unable to coerce')
 		return
 	
@@ -282,7 +283,7 @@ def validation(obj, model, root_schema, opts=None):
 			pass
 		out = __OutputObject(value, schema, path)
 		def recurse(v, s, name):
-			subpath = path.__copy__()
+			subpath = path[:]
 			subpath.append(name)
 			return subvalidate(v, s, subpath)
 		
@@ -304,7 +305,7 @@ def validation(obj, model, root_schema, opts=None):
 			'meta': {'sanitized': obj.sanitized, 'warnings': obj.warnings}
 		}
 
-__not_type = re.compile("^(?!type).+|type.+)$")
+__not_type = re.compile("^((?!type).+|type.+)$")
 __primitives = re.compile("^(" + "|".join(primitives.keys()) + ")$")
 
 metamodel = {
@@ -379,10 +380,10 @@ class Model:
 		
 		self.model = model['meta']['sanitized']
 	
-	def validate(self, obj, model_name, opts):
+	def validate(self, obj, model_name, opts={}):
 		model_name = str(model_name)
-		subopts = self.base_opts.__clone__().extend(opts)
-		if model_name not in model:
+		subopts = self.base_opts.copy().update(opts)
+		if model_name not in self.model:
 			raise ValueError("Unrecognized model name: " + model_name)
 		else:
-			return validation(obj, model, model_name, subopts)
+			return validation(obj, self.model, model_name, subopts)
