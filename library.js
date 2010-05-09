@@ -1,5 +1,5 @@
 /* d.o library.js
- * v. 0.1 released 2010-02-21
+ * v. 0.2 released 2010-05-09
  * docs @ http://code.drostie.org/library
  * 
  * This code was written by Chris Drost of drostie.org, and he hereby dedicates 
@@ -41,7 +41,7 @@ d.o.library({
 	
 	config = {
 		name: "d.o library", 
-		version: "0.1", 
+		version: "0.2", 
 		docs: "http://code.drostie.org/d.o/library",
 		depends: []
 	};
@@ -54,7 +54,14 @@ d.o.library({
 	}
 	
 	function arr(u) {
-		return typeof u === 'string' ? [u] : u;
+		switch (typeof u) {
+		case 'undefined':
+			return [];
+		case 'object':
+			return Array.prototype.slice.call(u, 0);
+		default:
+			return [u];
+		}
 	}
 	library = function (config) {
 		var e;
@@ -62,8 +69,7 @@ d.o.library({
 		if (typeof config.name === 'string') {
 			register(config);
 		} else {
-			config.require = arr(config.require);
-			if (config.require instanceof Array) {
+			if (config.require) {
 				request(config);
 			} else {
 				e = Error("Unsupported config object for d.o.library()");
@@ -109,7 +115,7 @@ d.o.library({
 	 */
 	request = function (config) {
 		var required, i, lib, tag;
-		required = config.require.slice(0);
+		required = arr(config.require);
 		if (typeof config.callback === 'function') {
 			load_events.push({
 				predicate: function () {
@@ -153,10 +159,12 @@ d.o.library({
 		delete config.fn;
 		delete config.name;
 		request({
-			require: config.depends,
+			require: arr(config.depends),
 			callback: function () {
 				if (! library.loaded[name]) {
-					f(d.o);
+					if (f) {
+						f(d.o);
+					}
 					library.loaded[name] = config;
 				}
 			}

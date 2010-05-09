@@ -13,66 +13,208 @@
  * This code was based on http://www.json.org/json_parse.js (v. 2009-05-31). 
  */
 
-/* Some stuff to put on that page:
- * 
- * This code was formed when I wanted to know exactly what character triggered
- * a given JSON error. It is based on the implementation at 
- *      http://www.json.org/json_parse.js
- * ...marked 2009-05-31. The parts which could be sped up with regular 
- * expressions have been; a bunch of surplus crap was cleared out; and the 
- * checking rules have been rewritten to be more
- * faithful to RFC 41__. While the interface is the same as for the native
- * JSON.parse() and JSON.stringify() functions described in ECMAScript 5, some
- * browsers may have other quirks, like accepting a trailing comma in an object
- * definition, which violates the standards.
- *
- * This version defaults to native code if it is available, unless you manually
- * set d.o.json.prefs.native = false. It uses the same dispatcher for both
- * parsing and stringifying; d.o.json(string) parses, while d.o.json(nonstring)
- * stringifies. In the odd case where you want to JSON-encode a string, this 
- * library makes sure that String.prototype.toJSON() exists. 
- */
 
 "use strict";
 /*global d */
 
 d.o.library({
+
 	name: "d.o json",
 	version: "0.1",
 	docs: "http://code.drostie.org/d.o/json",
 	depends: [],
 	fn: function (lib) {
-		var parse, stringify, native, func, prefs;
+		var parse, stringify, func, prefs, 
+			revivify, regex, parseDate, subs;
 		lib.json = function (obj, opt) {
-			if (typeof obj === 'string' | obj instanceof String) {
-				if (prefs.native) {
-					return JSON.parse(obj, opt);
+			var result;
+			if (typeof obj === 'string') {
+				if (lib.json.prefs.native) {
+					result = JSON.parse(obj);
 				} else {
-					return parse(obj, opt);
+					result = parse(obj);
 				}
+				if (lib.json.prefs.parse_dates) {
+					result = revivify(result, function (k, v) {
+						if (typeof v === 'string' && regex.date_format.test(v)) {
+							return parseDate(v);
+						} else {
+							return v;
+						}
+					});
+				}
+				if (typeof opt === 'function') {
+					result = revivify(result, opt);
+				}
+				return result;
 			} else {
-				return stringify(obj);
+				// object input, needs to be stringified.
+				if (lib.json.prefs.native && lib.json.prefs.language === "json") {
+					return JSON.apply(JSON, arguments);
+				} else {
+					return stringify.apply(lib.json, arguments);
+				}
 			}
 		};
-		lib.json.prefs = prefs = {};
-		prefs.native = false;
+		String.prototype.json = function () {
+			if (lib.json.prefs.native && lib.json.prefs.language === "json") {
+				return JSON.apply(JSON, arguments);
+			} else {
+				return stringify.apply(lib.json, arguments);
+			}
+		};
+		lib.json.prefs = prefs = {
+			native_available: false,
+			native: false,
+			parse_dates: true,
+			format: "json" //to be also supported: "js", "php"
+		};
+		// detect faster native-JSON implementations
 		if (typeof JSON === 'object') {
-			prefs.native = true;
+			prefs.native_available = true;
 			// Ignore non-native JSON object implementations.
 			// If they're native, the keys shouldn't pop up in a for-in.
 			for (func in JSON) {
 				if (func === 'parse' || func === 'stringify') {
-					prefs.native = false;
+					prefs.native_available = false;
 					break;
 				}
 			}
 		}
+		prefs.native = prefs.native_available;
+		
+		regex = {
+			//used in parser
+			disallowed: /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/,
+			dbl: /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+\-]?\d+)?/gi,
+			word: /true|false|null/g,
+			string_escape_chars: /([^\\"\t\r\n]*)(\\[\\fnrt\/"]|\\u[0-9a-fA-F]{4}|[\\"\t\r\n])/g,
+			date_format: /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{3}){0,2}Z$/,
+			// used in string formats
+		};
+		(function () {
+			//stringified formats codespace.
+			var parser, subs, js_disallowed, php_disallowed, json_string, str_affix;
+			js_disallowed = /[\u0000-\u001f\\"]/g;
+			php_disallowed = /[\u0000-\u001f\\"$]/g;
+			subs = {
+				// whitespace shorthands
+				'\f': '\\f', '\n': '\\n', '\r': '\\r', '\t': '\\t', '\v': '\\v', 
+				// javascript special chars
+				'"': '\\"', '\\': '\\\\',
+				// php's special char
+				'$': '\\$'
+			};
+			// This is a good idea but broken: esc would never be passed.
+			function replacer(char, esc) {
+				return subs.hasOwnProperty(char) ?
+					subs[char] : 
+					esc + ("000" + char.charCodeAt(0).toString(16)).slice(-4);
+			}
+			function js_str(s) {
+				
+				return '"' + s.replace(
+			function transfer_properties(src, dest) {
+				for (var i in src) { 
+					if (src.hasOwnProperty(i) && typeof src[i] !== 'undefined') {
+						if (typeof src[i] !== 'object') {
+							dest[i] = src[i];
+						} else {
+							dest[i] = src[i] instanceof Array ? [] : {};
+							transfer_properties(src[i], dest[i]);
+						}
+					}
+				}
+				return dest;
+			}
+			Format = function (overrides) {
+				transfer_properties(overrides, this);
+			};
+			Format.prototype = {
+				obj: {start: "{", sep: ", ", end: "}"}, 
+				arr: {start: "[", sep: ", ", end: "]"},
+				nil: function (s) {
+					return "null";
+				},
+				bool: function (s) {
+					return "" + s;
+				},
+				num: function (s) {
+					return isFinite(s) ? "" + s : "null";
+				},
+				str: function (s) {
+					return '"' + s.replace(js_disallowed, replacer) + '"';
+				},
+				prop_sep: ": ",
+				key: function (s) {
+					return this.str(s) + this.prop_sep;
+				}
+			};
+			lib.json.formats = {
+				json: new Format({}),
+				js: new Format({ 
+					identifier: /^[a-z$_][a-z0-9$_]*$/i,
+					keywords: /^(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|finally|for|function|if|implements|import|in|instanceof|interface|let|new|package|private|protected|public|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield)$/,
+					key: function (s) {
+						if (this.identifier.test(s) && ! this.keywords.test(s)) {
+							return s + ": ";
+						} else {
+							return this.str(s) + ": ";
+						}
+					}
+				}),
+				python: new Format({
+					bool: function (s) {
+						return s ? "True" : "False";
+					},
+					nil: function (s) {
+						return "None";
+					}
+				}),
+				php: new Format({
+					obj: {start: "array(", sep: ", ", end: ")"}, 
+					arr: {start: "array(", sep: ", ", end: ")"},
+					base: json_string("\\x"),
+					str: function (s) {
+						if (/[^ -~]/.test(s)) { // if we need escape chars:
+							return '"' + s.replace(php_disallowed, replacer) + '"';
+						} else { // else, single-quoted php string:
+							return "'" + s.replace(/([\\'])/g, "\\$1") + "'";
+						}
+					},
+					prop_sep: " => "
+				})
+			};
+		// Revivers are a postprocessing step once the JSON parsing has been 
+		// completed. This implementation splits the task into two parts for 
+		// greater code clarity.
+		revivify = function (parse_output, fn) {
+			function recurse(object, key, value) {
+				// first we recurse over the children of object[key] == value: 
+				var subkey;
+				if (typeof value === 'object') {
+					for (subkey in value) {
+						if (Object.hasOwnProperty.call(value, subkey)) {
+							recurse(value, subkey, value[subkey]);
+						}
+					}
+				}
+				// then we replace object[key] with fn.call(object, key, value).
+				object[key] = fn.call(object, key, value);
+				if (typeof object[key] === 'undefined') {
+					delete object[key];
+				}
+				return object[key];
+			}
+			return recurse({"": parse_output}, "", parse_output);
+		};
+		
 		parse = (function () {
 			var text, at, // global vars with the current parse content. 
-				escapes, forbidden_in_strings, whitespace, regex, // sanitizing data
+				escapes, forbidden_in_strings, whitespace, // sanitizing data
 				error, jump, white, next, value, // helper functions
 				primitives, // parsers for each JSON primitive.
-				revivify; //post-parse processing.
+				parseDate; //post-parse processing.
 			
 			// data for sanitizing later values
 			escapes = {'\\"': '"', '\\\\': '\\', '\\/': '/',
@@ -80,14 +222,30 @@ d.o.library({
 			};
 			forbidden_in_strings = {'\t': true, '\r': true, '\n': true};
 			whitespace = {' ': true, '\t': true, '\r': true, '\n': true};
-			regex = {
-				disallowed: /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/,
-				dbl: /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+\-]?\d+)?/gi,
-				word: /true|false|null/g,
-				string_escape_chars: /([^\\"\t\r\n]*)(\\[\\fnrt\/"]|\\u[0-9a-fA-F]{4}|[\\"\t\r\n])/g
-			};
 			
 			// helper functions
+			parseDate = function (str) {
+				var data, sanitized, i, attempt, a_str, a_dot;
+				sanitized = str.replace(" ", "T");
+				data = sanitized.split(/[\-T:.Z]/);
+				for (i = 0; i < 7; i += 1) {
+					data[i] = data[i] ? parseInt(data[i], 10) : 0;
+				}
+				data[1] -= 1;
+				attempt = new Date(Date.UTC.apply(Date, data));
+				
+				// to validate that it was actually a valid date: 
+				// convert the new date to its ISOString and see if they match.
+				a_str = attempt.toISOString();
+				// strip out the ms and the Z -- they're always OK and sometimes not present.
+				a_dot = a_str.lastIndexOf(".");
+				a_str = (a_dot === -1) ? a_str.substring(0, a_str.length - 1) : a_str.substring(0, a_dot);
+				if (sanitized.substring(0, a_str.length) === a_str) {
+					return attempt;
+				} else {
+					return str;
+				}
+			};
 			error = function (m, i) { // SyntaxError: Problem m at character #i.
 				var e, s;
 				if (typeof i !== 'number') {
@@ -124,6 +282,7 @@ d.o.library({
 				}
 			};
 			value = function () { // reads in the value @ at.
+				var str;
 				white();
 				switch (text.charAt(at)) {
 				case '{':
@@ -131,7 +290,8 @@ d.o.library({
 				case '[':
 					return primitives.array();
 				case '"':
-					return primitives.string();
+					str = primitives.string();
+					return str;
 				case 't': 
 				case 'f':
 				case 'n':
@@ -159,10 +319,10 @@ d.o.library({
 				string: function () {
 					var control, string, last, re;
 					re = regex.string_escape_chars;
-					re.lastIndex = last = at + 1; // skip over the '"' char.
+					re.lastIndex = last = at + 1; // skip over the first '"' char.
 					string = "";
-					
-					while (control = re.exec(text)) {
+					control = re.exec(text);
+					while (control !== null) {
 						string += control[1];
 						control = control[2];
 						last = re.lastIndex;
@@ -180,8 +340,11 @@ d.o.library({
 							string += escapes[control];
 						} else {
 							// \uNNNN string; syntax validated already by regex.
-							string += String.fromCharCode(parseInt(control.substring(2), 16));
+							string += String.fromCharCode(
+								parseInt(control.substring(2), 16)
+							);
 						}
+						control = re.exec(text);
 					}
 					error("Nonterminating string literal");
 				},
@@ -243,28 +406,6 @@ d.o.library({
 				}
 			};
 			
-			// See the docs for an explanation of revivers. This implementation of the
-			// algorithm splits the task into two parts for greater code clarity.
-			revivify = function (parse_output, fn) {
-				function recurse(object, key, value) {
-					// first we recurse over the children of object[key] == value: 
-					var subkey;
-					if (typeof value === 'object') {
-						for (subkey in value) {
-							if (Object.hasOwnProperty.call(value, subkey)) {
-								recurse(value, subkey, value[subkey]);
-							}
-						}
-					}
-					// then we replace object[key] with fn.call(object, key, value).
-					object[key] = fn.call(object, key, value);
-					if (typeof object[key] === 'undefined') {
-						delete object[key];
-					}
-					return object[key];
-				}
-				return recurse({"": parse_output}, "", parse_output);
-			};
 			// we return the JSON.parse function.
 			return function (source, reviver) {
 				var result, i, charcode;
@@ -272,9 +413,10 @@ d.o.library({
 				text = "" + source;
 				i = text.search(regex.disallowed);
 				if (i !== -1) {
-					charcode = "0000" + text.charCodeAt(i).toString(16);
-					charcode = "\\u" + charcode.substring(charcode.length - 4);
-					error("Invalid character: " + charcode, i);
+					error("Invalid character: " + 
+						("000" + text.charCodeAt(i).toString(16)).slice(-4), 
+						i
+					);
 				}
 				
 				// if that's ok, we parse a value():
@@ -287,10 +429,104 @@ d.o.library({
 					error("Expected end-of-file.");
 				}
 				
-				// apply reviver if it exists and return result.
-				return typeof reviver === 'function' ? 
-					revivify(result, reviver) :
-					result;
+				return result;
 			};
 		}());
-		
+		function setIfUnset(obj, prop, func) {
+			if (!obj.prototype.hasOwnProperty(prop)) {
+				obj.prototype[prop] = func;
+			}
+		}
+		function padint(n, size) {
+			n = n.toString();
+			while (n.length < size) {
+				n = "0" + n;
+			}
+			return n;
+		}
+		setIfUnset(Date, "toISOString", function () {
+			var ms = padint(this.getUTCMilliseconds(), 3);
+			return padint(this.getUTCFullYear(), 4) + "-" + 
+				padint(this.getUTCMonth() + 1, 2) + "-" +
+				padint(this.getUTCDate(), 2) + "T" +
+				padint(this.getUTCHours(), 2) + ":" +
+				padint(this.getUTCMinutes(), 2) + ":" +
+				padint(this.getUTCSeconds(), 2) +
+				(ms === "000" ? "Z" : "." + ms + "Z");
+		});
+		setIfUnset(Date, "toJSON", function () {
+			return this.toISOString();
+		});
+		setIfUnset(String, "toJSON", function () {
+			return this.valueOf();
+		});
+		setIfUnset(Number, "toJSON", function () {
+			return this.valueOf();
+		});
+		setIfUnset(Boolean, "toJSON", function () {
+			return this.valueOf();
+		});
+		raw_stringify = function (input, ref, indent) {
+			var keys, key, i, output;
+			// objects align their children, 
+			if (typeof input === "object" && input !== null && input.toJSON) {
+				input = input.toJSON();
+			}
+			switch (typeof input) {
+			case "string":
+				return ref.str(input);
+			case "number":
+				return isFinite(input) ? ref.num(input) : ref.nil(null);
+			case "boolean":
+				return ref.bool(input);
+			case "function":
+			case "undefined":
+				return undefined;
+			}
+			mode = (input instanceof Array) ? "arr" : "obj";
+			keys = [];
+			output = {};
+			for (key in input) {
+				if (input.hasOwnProperty(key)) {
+					t = json_raw_parse(input, ref, indent + "\t");
+					if (t !== undefined) {
+						output[key] = {
+							sort: (t.indexOf("\n") === -1) ? 0 : 1,
+							data: t
+						};
+						keys.push(key);
+					}
+				}
+			}
+				if (keys.length === 0) {
+					return ref[mode].start + ref[mode].end;
+				}
+				if (input instanceof Array) {
+					keys.sort(function (a, b) {
+						var c = output[a].sort - output[b].sort;
+						return (c !== 0) ? c : a - b;
+					});
+				} else {
+					keys.sort(function (a, b) {
+						var c = output[a].sort - output[b].sort;
+						return (c !== 0) ? c : (a < b) ? -1 : 1;
+					});
+				}
+				t = output;
+				output = [];
+				for (i = 0; i < keys.length; i += 1) {
+					//objects have a key string:
+					key = (mode === "obj") ? ref.keys(keys[i]) : "";
+					output[i] = key + t[keys[i]];
+				}
+				return ref[mode].start + 
+					"\n\t" + indent + 
+					output.join(ref[mode].sep + "\n\t" + indent) +
+					"\n" + indent + ref[mode].end;
+			}
+		};
+		stringify = function (object) {
+			return json_raw_parse(object, lib.json.formats[lib.prefs.format], "");
+		};
+	}
+});

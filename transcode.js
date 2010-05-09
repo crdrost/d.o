@@ -1,5 +1,5 @@
 /* d.o transcode
- * v. 0.1 released 2010-02-25
+ * v. 0.1 released 2010-05-09
  * docs @ http://code.drostie.org/library/transcode
  *
  * This function was written by Chris Drost of drostie.org, and he hereby dedicates it into the 
@@ -13,7 +13,7 @@
 /*jslint bitwise: false */
 d.o.library({
 	name: "d.o transcode", 
-	version: "0.0", 
+	version: "0.1", 
 	docs: "http://code.drostie.org/d.o/transcode",
 	depends: [],
 	fn: function (lib) {
@@ -39,7 +39,7 @@ d.o.library({
 			throw v;
 		};
 		validate = function (condition, message, meta) {
-			if (condition) {
+			if (! condition) {
 				error(message, meta);
 			}
 		};
@@ -56,7 +56,9 @@ d.o.library({
 		};
 		regex = {
 			b64: /^[a-z0-9+\/]*(|=|==)$/i,
-			equals: /[=]/g 
+			equals: /[=]/g,
+			hex_check: /[^a-f0-9]/i,
+			whitespace: /[\n\s]+/g
 		};
 		transform_lib = {
 			"array": {
@@ -128,6 +130,7 @@ d.o.library({
 			"string": {
 				"base64": function (string) {
 					var array, padding, c, last, i;
+					string = string.replace(regex.whitespace, "");
 					function code(i) {
 						return lib.indexOf(string.charAt(i));
 					}
@@ -141,7 +144,6 @@ d.o.library({
 					for (i = 0; i < last; i += 4) {
 						c = 262144 * code(i) + 4096 * code(i + 1) + 
 							64 * code(i + 2) + code(i + 3);
-						
 						array.push(c >>> 16);
 						array.push((c & 0xFF00) >>> 8);
 						array.push(c & 0xFF);
@@ -152,7 +154,9 @@ d.o.library({
 					return array;
 				},
 				"hex": function (string) {
-					validate(string.length % 2 === 0, "Invalid hex string");
+					string = string.replace(regex.whitespace, "");
+					validate(regex.hex_check.exec(string) === null, "Invalid characters in hex string");
+					validate(string.length % 2 === 0, "Hex string must be a multiple of 2 chars in length.");
 					var array, i;
 					array = [];
 					for (i = 0; i < string.length; i += 2) {
