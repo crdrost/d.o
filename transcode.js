@@ -1,5 +1,5 @@
 /* d.o transcode
- * v. 0.1 released 2010-05-09
+ * v. 0.2 released 2010-05-09
  * docs @ http://code.drostie.org/library/transcode
  *
  * This function was written by Chris Drost of drostie.org, and he hereby dedicates it into the 
@@ -10,10 +10,10 @@
 
 "use strict";
 /*global d */
-/*jslint bitwise: false */
+/*jslint white: true, onevar: true, undef: true, nomen: true, eqeqeq: true, plusplus: true, newcap: true, immed: true, strict: true, bitwise: false, regexp: false */
 d.o.library({
 	name: "d.o transcode", 
-	version: "0.1", 
+	version: "0.2", 
 	docs: "http://code.drostie.org/d.o/transcode",
 	depends: [],
 	fn: function (lib) {
@@ -129,19 +129,18 @@ d.o.library({
 			},
 			"string": {
 				"base64": function (string) {
-					var array, padding, c, last, i;
+					var array, padding, c, i;
 					string = string.replace(regex.whitespace, "");
 					function code(i) {
-						return lib.indexOf(string.charAt(i));
+						return lib64.indexOf(string.charAt(i));
 					}
 					padding = regex.b64.exec(string);
 					validate(string.length % 4 === 0 && padding !== null, 
 						"Invalid base64 string", string);
 					padding = padding[1].length;
 					string = string.replace(regex.equals, "A");
-					c = 0;
 					array = [];
-					for (i = 0; i < last; i += 4) {
+					for (i = 0; i < string.length; i += 4) {
 						c = 262144 * code(i) + 4096 * code(i + 1) + 
 							64 * code(i + 2) + code(i + 3);
 						array.push(c >>> 16);
